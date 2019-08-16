@@ -19,6 +19,7 @@ public class DrawMeshSystem : JobComponentSystem
         material = Resources.Load<Material>("Materials/New Material");
         camera = GameObject.FindObjectOfType<Camera>();
         planes = new NativeArray<float4>(6, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
+        //BurstCompiler.CompileFunctionPointer<>()
     }
 
     protected override void OnDestroy()

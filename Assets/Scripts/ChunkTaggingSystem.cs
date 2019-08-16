@@ -103,14 +103,11 @@ public class ChunkTaggingSystem : JobComponentSystem
         {
             var translations = chunk.GetNativeArray(Translation);
             var entities = chunk.GetNativeArray(entityType);
-            Debug.Assert(translations.Length == 1);
-            float r1, r2;
-            r1 = Mathf.Abs(PlayerPos.x - translations[0].Value.x);
-            r2 = Mathf.Abs(PlayerPos.z - translations[0].Value.z);
+
             //Debug.Log(r1 + " " + r2);
             int3 chunkOffset = new int3(0, 0, 0);
 
-            if(r1 > RenderDistance * 16)
+            if(Mathf.Abs(PlayerPos.x - translations[0].Value.x) > RenderDistance * 16)
             {
                 if(PlayerPos.x > translations[0].Value.x)
                 {
@@ -121,7 +118,7 @@ public class ChunkTaggingSystem : JobComponentSystem
                     chunkOffset.x -= RenderDistance * 2;
                 }
             }
-            if(r2 > RenderDistance * 16 )
+            if(Mathf.Abs(PlayerPos.z - translations[0].Value.z) > RenderDistance * 16 )
             {
                 //if()
                 if(PlayerPos.z > translations[0].Value.z)

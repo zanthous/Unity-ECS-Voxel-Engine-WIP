@@ -59,11 +59,13 @@ public class MeshSystem : ComponentSystem
         var chunks = this.meshDirtyQuery.CreateArchetypeChunkArray(Allocator.TempJob);
 
         var meshDirtyType = this.GetArchetypeChunkComponentType<MeshDirty>(true);
-        
+        Entity entity;
+        ArchetypeChunk chunk;
+        NativeArray<MeshDirty> meshDirty;
         for(var chunkIndex = 0; chunkIndex < chunks.Length; chunkIndex++)
         {
-            var chunk = chunks[chunkIndex];
-            var meshDirty = chunk.GetNativeArray(meshDirtyType);
+            chunk = chunks[chunkIndex];
+            meshDirty = chunk.GetNativeArray(meshDirtyType);
 
             #region rendermesh
             //for(var index = 0; index < chunk.Count; index++)
@@ -103,7 +105,7 @@ public class MeshSystem : ComponentSystem
             for(var index = 0; index < chunk.Count; index++)
             {
                 counter++;
-                var entity = meshDirty[index].Entity;
+                entity = meshDirty[index].Entity;
                 
                 this.SetMesh(
                     entity,
@@ -121,6 +123,8 @@ public class MeshSystem : ComponentSystem
         chunks.Dispose();
     }
 
+    //https://forum.unity.com/threads/create-render-mesh-using-job-system.720302/
+    //TODO update to 2019.3
     private void SetMesh(
         Entity e,
         DynamicBuffer<Vector3> vertices,

@@ -1,16 +1,20 @@
 ﻿using System.Collections;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 using UnityEngine;
 
 
 public unsafe struct MortonUtility
 {
+    //TODO get these burst compiled by either writing them into jobs or 
+    //compiling function pointers which i am not sure how works
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static uint m3d_e_sLUT16(ushort x, ushort y, ushort z)
     {
         uint answer = 0;
         for(uint i = sizeof(ushort); i > 0; --i)
         {
-            //uint shift = (i - 1) * 8;
+            //uint shift = (i - 1) * 8; 
             ushort shift = (ushort)((i - 1) * 8);
             answer =
                 answer << 24 |
@@ -20,6 +24,7 @@ public unsafe struct MortonUtility
         }
         return answer;
     }
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static void m3d_d_sLUT16(uint m, ushort* x, ushort* y, ushort* z) {
 		*x = morton3D_DecodeCoord_LUT256x(m, 0);
 		*y = morton3D_DecodeCoord_LUT256y(m, 0);
@@ -27,6 +32,7 @@ public unsafe struct MortonUtility
 	}
 
     //helpers
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     static ushort morton3D_DecodeCoord_LUT256x(uint m, uint startshift) {
 		uint a = 0;
 		uint loops = (sizeof(uint) <= 4) ? 4 : 7; // ceil for 32bit, floor for 64bit
@@ -35,7 +41,7 @@ public unsafe struct MortonUtility
 		}
 		return (ushort)a;
 	}
-
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     static ushort morton3D_DecodeCoord_LUT256y(uint m, uint startshift) 
     {
         uint a = 0;
@@ -46,6 +52,7 @@ public unsafe struct MortonUtility
         }
         return (ushort) a;
     }
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     static ushort morton3D_DecodeCoord_LUT256z(uint m, uint startshift) 
     {
         uint a = 0;

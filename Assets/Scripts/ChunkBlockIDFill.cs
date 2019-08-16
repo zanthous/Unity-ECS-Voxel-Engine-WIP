@@ -7,6 +7,7 @@ using Unity.Burst;
 using System;
 using Unity.Mathematics;
 using UnityEngine;
+using System.Runtime.CompilerServices;
 
 //ChunkManager?
 
@@ -45,7 +46,9 @@ public class ChunkBlockIDFill : JobComponentSystem
 
     DelayedChunkTaggingBufferSystem system;
 
-    protected override void OnCreateManager()
+    private NativeArray<byte> perm;
+
+    protected override void OnCreate()
     {
         fillQuery = GetEntityQuery(new EntityQueryDesc()
         {
@@ -77,12 +80,13 @@ public class ChunkBlockIDFill : JobComponentSystem
                 ComponentType.ReadOnly<Translation>()
             }
         });
-
+        perm = new NativeArray<byte>(SimplexNoise.perm, Allocator.Persistent);
         system = World.Active.GetOrCreateSystem<DelayedChunkTaggingBufferSystem>();
     }
 
-    protected override void OnDestroyManager()
+    protected override void OnDestroy()
     {
+        perm.Dispose();
     }
 
     protected override JobHandle OnUpdate(JobHandle inputDeps)
@@ -113,8 +117,9 @@ public class ChunkBlockIDFill : JobComponentSystem
             PlayerPos = playerPosition,
             RenderDistance = renderDistance,
             CommandBuffer = system.CreateCommandBuffer().ToConcurrent(),
-            fillsThisFrame = 0
-            
+            fillsThisFrame = 0,
+            perm = perm
+
         };
         var job2 = new PositionChunksJob
         {
@@ -144,18 +149,20 @@ public class ChunkBlockIDFill : JobComponentSystem
     //NOTE: If I add teleportation, then this needs to be adjusted
     //I think I can use these instead of queries?
     //[RequireComponentTag(typeof(Chunk))]
-    unsafe struct InitializeChunkBufferJob : IJobForEachWithEntity<Translation,Chunk, Ungenerated>
+    unsafe struct InitializeChunkBufferJob : IJobForEachWithEntity<Translation, Chunk, Ungenerated>
     {
         [NativeDisableParallelForRestriction] public BufferFromEntity<BlockIDBuffer> blocks;
         [ReadOnly] public float3 PlayerPos;
         [ReadOnly] public int RenderDistance;
         public int fillsThisFrame;
 
+        [NativeDisableParallelForRestriction] [ReadOnly] public NativeArray<byte> perm;
+
         //Settings.RenderDistance * 2 * Settings.WorldHeight
         //x = mod width
         public EntityCommandBuffer.Concurrent CommandBuffer;
         //Proof of concept being done with renderdistance = 4
-        public void Execute(Entity entity, int index, ref Translation translation,[ReadOnly] ref Chunk chunk, [ReadOnly] ref Ungenerated ungenerated)
+        public void Execute(Entity entity, int index, ref Translation translation, [ReadOnly] ref Chunk chunk, [ReadOnly] ref Ungenerated ungenerated)
         {
             ushort x, y, z;
             int height;
@@ -170,7 +177,7 @@ public class ChunkBlockIDFill : JobComponentSystem
                     //z = (i >> 4) & 15;
                     MortonUtility.m3d_d_sLUT16(i, &x, &y, &z);
                     //1/128 = 0.0078125‬f
-                    height = (32 + (int) (Mathf.PerlinNoise((translation.Value.x + x) * 0.0078125f, (translation.Value.z + z) * 0.0078125f) * 64.0f));
+                    height = (32 + (int) (noise((translation.Value.x + x) * 0.0078125f, (translation.Value.z + z) * 0.0078125f) * 16.0f));
                     blocks[entity].Add(((chunk.pos.y * 16 + y) < height ? (ushort) 0 : (ushort) (2000)));
                 }
                 CommandBuffer.RemoveComponent<Ungenerated>(index, entity);
@@ -185,11 +192,125 @@ public class ChunkBlockIDFill : JobComponentSystem
                     //y = i >> 8;
                     //z = (i >> 4) & 15;
                     MortonUtility.m3d_d_sLUT16(i, &x, &y, &z);
-                    height = (32 + (int) (Mathf.PerlinNoise((translation.Value.x + x) * 0.0078125f, (translation.Value.z + z) * 0.0078125f) * 64.0f));
+                    height = (32 + (int) (noise((translation.Value.x + x) * 0.0078125f, (translation.Value.z + z) * 0.0078125f) * 16.0f));
                     blocks[entity].Add(((translation.Value.y + y) < height ? (ushort) 0 : (ushort) (2000)));
                 }
                 CommandBuffer.RemoveComponent<Ungenerated>(index, entity);
             }
+        }
+
+        //This hopefully will get faster once entity commandbuffers can be burst compiled, then all this code can be too.
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        int fastfloor(float fp)
+        {
+            int i = (int) (fp);
+            return (fp < i) ? (i - 1) : (i);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        byte hash(int i)
+        {
+            return perm[(byte) (i)];
+        }
+
+
+        float grad(int hash, float x, float y)
+        {
+            int h = hash & 0x3F;  // Convert low 3 bits of hash code
+            float u = h < 4 ? x : y;  // into 8 simple gradient directions,
+            float v = h < 4 ? y : x;
+            return ((h & 1) == 0 ? -u : u) + ((h & 2) == 0 ? -2.0f * v : 2.0f * v); // and compute the dot product with (x,y).
+        }
+
+        float noise(float x, float y)
+        {
+            float n0, n1, n2;   // Noise contributions from the three corners
+
+            // Skewing/Unskewing factors for 2D
+            const float F2 = 0.366025403f;  // F2 = (sqrt(3) - 1) / 2
+            const float G2 = 0.211324865f;  // G2 = (3 - sqrt(3)) / 6   = F2 / (1 + 2 * K)
+
+            // Skew the input space to determine which simplex cell we're in
+            float s = (x + y) * F2;  // Hairy factor for 2D
+            float xs = x + s;
+            float ys = y + s;
+            int i = fastfloor(xs);
+            int j = fastfloor(ys);
+
+            // Unskew the cell origin back to (x,y) space
+            float t = (float) (i + j) * G2;
+            float X0 = i - t;
+            float Y0 = j - t;
+            float x0 = x - X0;  // The x,y distances from the cell origin
+            float y0 = y - Y0;
+
+            // For the 2D case, the simplex shape is an equilateral triangle.
+            // Determine which simplex we are in.
+            int i1, j1;  // Offsets for second (middle) corner of simplex in (i,j) coords
+            if(x0 > y0)
+            {   // lower triangle, XY order: (0,0)->(1,0)->(1,1)
+                i1 = 1;
+                j1 = 0;
+            }
+            else
+            {   // upper triangle, YX order: (0,0)->(0,1)->(1,1)
+                i1 = 0;
+                j1 = 1;
+            }
+
+            // A step of (1,0) in (i,j) means a step of (1-c,-c) in (x,y), and
+            // a step of (0,1) in (i,j) means a step of (-c,1-c) in (x,y), where
+            // c = (3-sqrt(3))/6
+
+            float x1 = x0 - i1 + G2;            // Offsets for middle corner in (x,y) unskewed coords
+            float y1 = y0 - j1 + G2;
+            float x2 = x0 - 1.0f + 2.0f * G2;   // Offsets for last corner in (x,y) unskewed coords
+            float y2 = y0 - 1.0f + 2.0f * G2;
+
+            // Work out the hashed gradient indices of the three simplex corners
+            int gi0 = hash(i + hash(j));
+            int gi1 = hash(i + i1 + hash(j + j1));
+            int gi2 = hash(i + 1 + hash(j + 1));
+
+            // Calculate the contribution from the first corner
+            float t0 = 0.5f - x0 * x0 - y0 * y0;
+            if(t0 < 0.0f)
+            {
+                n0 = 0.0f;
+            }
+            else
+            {
+                t0 *= t0;
+                n0 = t0 * t0 * grad(gi0, x0, y0);
+            }
+
+            // Calculate the contribution from the second corner
+            float t1 = 0.5f - x1 * x1 - y1 * y1;
+            if(t1 < 0.0f)
+            {
+                n1 = 0.0f;
+            }
+            else
+            {
+                t1 *= t1;
+                n1 = t1 * t1 * grad(gi1, x1, y1);
+            }
+
+            // Calculate the contribution from the third corner
+            float t2 = 0.5f - x2 * x2 - y2 * y2;
+            if(t2 < 0.0f)
+            {
+                n2 = 0.0f;
+            }
+            else
+            {
+                t2 *= t2;
+                n2 = t2 * t2 * grad(gi2, x2, y2);
+            }
+
+            // Add contributions from each corner to get the final noise value.
+            // The result is scaled to return values in the interval [-1,1].
+            return 45.23065f * (n0 + n1 + n2);
         }
     }
 
@@ -198,9 +319,9 @@ public class ChunkBlockIDFill : JobComponentSystem
         [NativeDisableParallelForRestriction] public BufferFromEntity<BlockIDBuffer> blocks;
         [ReadOnly] public float3 PlayerPos;
         [ReadOnly] public int RenderDistance;
-        
+
         [NativeDisableParallelForRestriction] public NativeHashMap<int3, Entity>.ParallelWriter ChunkEntities;
-        
+
         public void Execute(Entity entity, int index, ref Translation translation, [ReadOnly] ref Ungenerated ungenerated, ref Chunk chunk)
         {
             //First init
@@ -222,7 +343,7 @@ public class ChunkBlockIDFill : JobComponentSystem
                 //Chunk pos is the position of a chunk in the world determined by the index in the job
                 ChunkEntities.TryAdd(chunk.pos, entity);
                 //multiply by size of chunk to get location in units
-                translation.Value = new float3(chunk.pos.x*16, chunk.pos.y*16, chunk.pos.z*16);
+                translation.Value = new float3(chunk.pos.x * 16, chunk.pos.y * 16, chunk.pos.z * 16);
             }
             else
             {
@@ -230,7 +351,7 @@ public class ChunkBlockIDFill : JobComponentSystem
                 //Debug.Log(chunk.pos);
                 translation.Value = chunk.pos * 16;
 
-                ChunkEntities.TryAdd(chunk.pos,entity);
+                ChunkEntities.TryAdd(chunk.pos, entity);
             }
         }
     }

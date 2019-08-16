@@ -86,6 +86,9 @@ public class ChunkMeshGenerationSystem : JobComponentSystem
         public EntityCommandBuffer.Concurrent CommandBuffer;
         public int meshesThisFrame;
 
+        //TODO
+        //Try https://forum.unity.com/threads/dynamicbuffer-is-awfully-slow.728663/
+        //instead of add-ing
         public void Execute(ArchetypeChunk archChunk, int chunkIndex, int firstEntityIndex)
         {
             //Testing updating meshes slowly
