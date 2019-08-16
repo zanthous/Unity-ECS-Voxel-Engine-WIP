@@ -15,7 +15,7 @@ public class ChunkTaggingSystem : JobComponentSystem
     EntityQuery playerQuery;
     private TagAsUngeneratedECBS system;
     private GameObject camera;
-
+    
     protected override void OnCreateManager()
     {
         camera = GameObject.FindObjectOfType<Camera>().gameObject;
@@ -53,11 +53,10 @@ public class ChunkTaggingSystem : JobComponentSystem
         var job2 = new TagChunksUngenerated
         {
             Translation = GetArchetypeChunkComponentType<Translation>(),
-            Position = camera.transform.position,
+            PlayerPos = camera.transform.position,
             entityType = GetArchetypeChunkEntityType(),
             CommandBuffer = system.CreateCommandBuffer().ToConcurrent(),
             RenderDistance = Settings.RenderDistance
-
         };
 
         //TODO potential issue here
@@ -91,7 +90,7 @@ public class ChunkTaggingSystem : JobComponentSystem
     //TODO make update with render distance
     struct TagChunksUngenerated : IJobChunk
     {
-        [ReadOnly] public float3 Position;
+        [ReadOnly] public float3 PlayerPos;
         [ReadOnly] public int RenderDistance;
 
         //need translation
@@ -99,20 +98,44 @@ public class ChunkTaggingSystem : JobComponentSystem
         [ReadOnly] public ArchetypeChunkEntityType entityType;
 
         public EntityCommandBuffer.Concurrent CommandBuffer;
-        
+
         public void Execute(ArchetypeChunk chunk, int chunkIndex, int firstEntityIndex)
         {
             var translations = chunk.GetNativeArray(Translation);
             var entities = chunk.GetNativeArray(entityType);
             Debug.Assert(translations.Length == 1);
-            if(Mathf.Abs(Position.x - translations[0].Value.x) > RenderDistance * 16)
+            float r1, r2;
+            r1 = Mathf.Abs(PlayerPos.x - translations[0].Value.x);
+            r2 = Mathf.Abs(PlayerPos.z - translations[0].Value.z);
+            //Debug.Log(r1 + " " + r2);
+            int3 chunkOffset = new int3(0, 0, 0);
+
+            if(r1 > RenderDistance * 16)
             {
-                CommandBuffer.AddComponent<Ungenerated>(chunkIndex, entities[0], new Ungenerated { xtruezfalse = true });
-                CommandBuffer.RemoveComponent<ChunkUpToDate>(chunkIndex,entities[0]);
+                if(PlayerPos.x > translations[0].Value.x)
+                {
+                    chunkOffset.x += RenderDistance * 2;
+                }
+                else
+                {
+                    chunkOffset.x -= RenderDistance * 2;
+                }
             }
-            else if(Mathf.Abs(Position.z - translations[0].Value.z) > RenderDistance * 16)
+            if(r2 > RenderDistance * 16 )
             {
-                CommandBuffer.AddComponent<Ungenerated>(chunkIndex, entities[0], new Ungenerated { xtruezfalse = false });
+                //if()
+                if(PlayerPos.z > translations[0].Value.z)
+                {
+                    chunkOffset.z += RenderDistance * 2;
+                }
+                else
+                {
+                    chunkOffset.z -= RenderDistance * 2;
+                }
+            }
+            if(chunkOffset.x != 0 || chunkOffset.z != 0)
+            {
+                CommandBuffer.AddComponent<Ungenerated>(chunkIndex, entities[0], new Ungenerated { offset = chunkOffset });
                 CommandBuffer.RemoveComponent<ChunkUpToDate>(chunkIndex, entities[0]);
             }
         }

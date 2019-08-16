@@ -1,5 +1,7 @@
 ﻿using Unity.Entities;
+using Unity.Mathematics;
+
 public struct Ungenerated : IComponentData
 {
-    public bool xtruezfalse;
+    public int3 offset;
 }

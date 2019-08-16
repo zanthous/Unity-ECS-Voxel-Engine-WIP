@@ -55,7 +55,7 @@ public class MeshSystem : ComponentSystem
         if(!Main.InitDone)
             return;
 
-        var mat = Resources.Load<Material>("Materials/New Material");
+        //var mat = Resources.Load<Material>("Materials/New Material");
         var chunks = this.meshDirtyQuery.CreateArchetypeChunkArray(Allocator.TempJob);
 
         var meshDirtyType = this.GetArchetypeChunkComponentType<MeshDirty>(true);

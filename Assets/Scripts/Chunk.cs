@@ -8,6 +8,12 @@ using UnityEngine;
 [Serializable]
 public struct Chunk : IComponentData
 {
+    public int3 pos;
+}
+
+public struct ShouldDraw : IComponentData
+{
+    public bool Value;
 }
 
 [InternalBufferCapacity(16*16*16)]
@@ -58,3 +64,8 @@ public struct MeshDirty : IComponentData
 }
 
 public struct ChunkUpToDate : IComponentData { }
+
+public struct SharedMaterial : ISharedComponentData
+{
+
+}

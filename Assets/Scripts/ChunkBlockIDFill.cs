@@ -12,8 +12,9 @@ using UnityEngine;
 
 public class ChunkBlockIDFill : JobComponentSystem
 {
-    EntityQuery query;
+    EntityQuery fillQuery;
     EntityQuery playerQuery;
+    EntityQuery positionQuery;
     //private int renderX = Settings.RenderDistance * 2;
     //private int renderY = Settings.WorldHeight / Settings.ChunkSize;
     //private int renderZ = Settings.RenderDistance * 2;
@@ -46,13 +47,24 @@ public class ChunkBlockIDFill : JobComponentSystem
 
     protected override void OnCreateManager()
     {
-        query = GetEntityQuery(new EntityQueryDesc()
+        fillQuery = GetEntityQuery(new EntityQueryDesc()
         {
             All = new ComponentType[] {
-                ComponentType.ReadWrite<Translation>(),
+                ComponentType.ReadOnly<Translation>(),
                 ComponentType.ReadOnly<Chunk>(),
                 ComponentType.ReadOnly<Ungenerated>(),
                 ComponentType.ReadWrite<BlockIDBuffer>()
+            },
+            Any = System.Array.Empty<ComponentType>(),
+            None = System.Array.Empty<ComponentType>()
+        });
+        positionQuery = GetEntityQuery(new EntityQueryDesc()
+        {
+            All = new ComponentType[] {
+                ComponentType.ReadWrite<Translation>(),
+                ComponentType.ReadWrite<Chunk>(),
+                ComponentType.ReadOnly<Ungenerated>(),
+                ComponentType.ReadOnly<BlockIDBuffer>()
             },
             Any = System.Array.Empty<ComponentType>(),
             None = System.Array.Empty<ComponentType>()
@@ -99,12 +111,27 @@ public class ChunkBlockIDFill : JobComponentSystem
         {
             blocks = GetBufferFromEntity<BlockIDBuffer>(false),
             PlayerPos = playerPosition,
-            RenderDistance = playerRef.renderDistance,
-            CommandBuffer = system.CreateCommandBuffer().ToConcurrent()
+            RenderDistance = renderDistance,
+            CommandBuffer = system.CreateCommandBuffer().ToConcurrent(),
+            fillsThisFrame = 0
+            
         };
-        inputDeps = job.Schedule<InitializeChunkBufferJob>(query, inputDeps);
-        system.AddJobHandleForProducer(inputDeps);
-        return inputDeps;
+        var job2 = new PositionChunksJob
+        {
+            blocks = GetBufferFromEntity<BlockIDBuffer>(true),
+            PlayerPos = playerPosition,
+            RenderDistance = renderDistance,
+            ChunkEntities = Main.chunkEntities.AsParallelWriter()
+        };
+        //Apparently you should basically never use complete, and just pass the previous job
+        //handle in as a dependency of the current job I believe
+
+        var h1 = job2.Schedule<PositionChunksJob>(positionQuery, inputDeps);
+
+        var h2 = job.Schedule<InitializeChunkBufferJob>(fillQuery, h1);
+        system.AddJobHandleForProducer(h2);
+
+        return JobHandle.CombineDependencies(h1, h2);
     }
 
 
@@ -116,104 +143,41 @@ public class ChunkBlockIDFill : JobComponentSystem
     //NOTE: Cannot use burstcompile with entitycommandbuffer 7/18/2019
     //NOTE: If I add teleportation, then this needs to be adjusted
     //I think I can use these instead of queries?
-    //[RequireComponentTag(, typeof(BlockIDBuffer), typeof(Chunk))]
-    unsafe struct InitializeChunkBufferJob : IJobForEachWithEntity<Translation, Ungenerated>
+    //[RequireComponentTag(typeof(Chunk))]
+    unsafe struct InitializeChunkBufferJob : IJobForEachWithEntity<Translation,Chunk, Ungenerated>
     {
         [NativeDisableParallelForRestriction] public BufferFromEntity<BlockIDBuffer> blocks;
         [ReadOnly] public float3 PlayerPos;
         [ReadOnly] public int RenderDistance;
+        public int fillsThisFrame;
+
         //Settings.RenderDistance * 2 * Settings.WorldHeight
         //x = mod width
         public EntityCommandBuffer.Concurrent CommandBuffer;
         //Proof of concept being done with renderdistance = 4
-        public void Execute(Entity entity, int index, ref Translation translation, [ReadOnly] ref Ungenerated ungenerated)
+        public void Execute(Entity entity, int index, ref Translation translation,[ReadOnly] ref Chunk chunk, [ReadOnly] ref Ungenerated ungenerated)
         {
-            ////Running into an issue currently where the entitycommandbuffer isn't properly removing
-            ////generated chunks out of this job 
-            //if(blocks[entity].Length !=0)
-            //{
-            //    Debug.Log("Error! Chunk already initialized!");
-            //    return;
-            //}
+            ushort x, y, z;
+            int height;
 
             //First init
             if(blocks[entity].Length == 0)
             {
-                Translation chunkPos = new Translation();
-                //x increments every index but wraps every renderdistance*2 blocks
-                //Offset by render distance so the player is in the middle though
-                chunkPos.Value.x = ((int) PlayerPos.x + index % (RenderDistance * 2)) - RenderDistance;
-                //y increments everytime an x-z layer is made (renderdistance*2)^2 or 2^6 and does not wrap
-                chunkPos.Value.y = index / ((RenderDistance * 2) * (RenderDistance * 2)); //
-                                                                                          //z increments every time x completes a row, so every 8 blocks (renderdistance*2, which is 2^3)
-                                                                                          //z wraps every renderdistance*2 blocks
-                chunkPos.Value.z = ((int) PlayerPos.z + (index / (RenderDistance * 2)) % (RenderDistance * 2)) - RenderDistance;
-                //Chunk pos is the position of a chunk in the world determined by the index in the job
-
-                //multiply by size of chunk to get location in units
-                translation.Value = chunkPos.Value * 16;
-
-                //blocks[entity].Reserve(16 * 16 * 16);
-
-                ushort x, y, z;
-                int height;
-
-                ushort test;
                 for(ushort i = 0; i < 16 * 16 * 16; i++)
                 {
                     //x = i & 15;
                     //y = i >> 8;
                     //z = (i >> 4) & 15;
                     MortonUtility.m3d_d_sLUT16(i, &x, &y, &z);
-                    height = (32 + (int) (Mathf.PerlinNoise((translation.Value.x + x) * 0.015625f, (translation.Value.z + z) * 0.015625f) * 70.0f));
-                    blocks[entity].Add(((chunkPos.Value.y * 16 + y) < height ? (ushort) 0 : (ushort) (2000)));
+                    //1/128 = 0.0078125‬f
+                    height = (32 + (int) (Mathf.PerlinNoise((translation.Value.x + x) * 0.0078125f, (translation.Value.z + z) * 0.0078125f) * 64.0f));
+                    blocks[entity].Add(((chunk.pos.y * 16 + y) < height ? (ushort) 0 : (ushort) (2000)));
                 }
                 CommandBuffer.RemoveComponent<Ungenerated>(index, entity);
             }
             else
             {
-                //TODO 
                 blocks[entity].Clear();
-
-                //move over renderdistance+1
-                if(ungenerated.xtruezfalse)
-                {
-                    if(translation.Value.x > PlayerPos.x)
-                    {
-                        translation.Value.x -= (RenderDistance * 2) * 16;
-                        //y unchanged
-                        //z unchanged
-                    }
-                    else
-                    {
-                        translation.Value.x += (RenderDistance * 2) * 16;
-                        //y unchanged
-                        //z unchanged
-                    }
-                }
-                else
-                {
-                    if(translation.Value.z > PlayerPos.z)
-                    {
-                        translation.Value.z -= (RenderDistance * 2) * 16;
-                    }
-                    else
-                    {
-                        translation.Value.z += (RenderDistance * 2) * 16;
-                    }
-
-                    //Debug.Log("I fucked up");
-                    //Debug.Log("Trans x: " + translation.Value.x + "\n Player chunkX scaled up: " + (ChunkPos.x * 16));
-                    //Debug.Log("Trans z: " + translation.Value.x + "\n Player chunkZ scaled up: " + (ChunkPos.z * 16));
-                    //Debug.Log("x result: " + Mathf.Abs(translation.Value.x - (PlayerPos.x * 16.0f)));
-                    //Debug.Log("z result: " + Mathf.Abs(translation.Value.z - (PlayerPos.z * 16.0f)));
-                }
-                //translation.Value = chunkPos.Value * 16;
-
-                //blocks[entity].Reserve(16 * 16 * 16);
-
-                ushort x, y, z;
-                int height;
 
                 for(ushort i = 0; i < 16 * 16 * 16; i++)
                 {
@@ -221,10 +185,52 @@ public class ChunkBlockIDFill : JobComponentSystem
                     //y = i >> 8;
                     //z = (i >> 4) & 15;
                     MortonUtility.m3d_d_sLUT16(i, &x, &y, &z);
-                    height = (32 + (int) (Mathf.PerlinNoise((translation.Value.x + x) * 0.015625f, (translation.Value.z + z) * 0.015625f) * 70.0f));
+                    height = (32 + (int) (Mathf.PerlinNoise((translation.Value.x + x) * 0.0078125f, (translation.Value.z + z) * 0.0078125f) * 64.0f));
                     blocks[entity].Add(((translation.Value.y + y) < height ? (ushort) 0 : (ushort) (2000)));
                 }
                 CommandBuffer.RemoveComponent<Ungenerated>(index, entity);
+            }
+        }
+    }
+
+    unsafe struct PositionChunksJob : IJobForEachWithEntity<Translation, Ungenerated, Chunk>
+    {
+        [NativeDisableParallelForRestriction] public BufferFromEntity<BlockIDBuffer> blocks;
+        [ReadOnly] public float3 PlayerPos;
+        [ReadOnly] public int RenderDistance;
+        
+        [NativeDisableParallelForRestriction] public NativeHashMap<int3, Entity>.ParallelWriter ChunkEntities;
+        
+        public void Execute(Entity entity, int index, ref Translation translation, [ReadOnly] ref Ungenerated ungenerated, ref Chunk chunk)
+        {
+            //First init
+            if(blocks[entity].Length == 0)
+            {
+                //Translation chunkPos = new Translation();
+                //x increments every index but wraps every renderdistance*2 blocks
+                //Offset by render distance so the player is in the middle though
+                chunk.pos = new int3
+                {
+                    x = ((int) PlayerPos.x + index % (RenderDistance * 2)) - RenderDistance,
+                    //y increments everytime an x-z layer is made (renderdistance*2)^2 or 2^6 and does not wrap
+                    y = index / ((RenderDistance * 2) * (RenderDistance * 2)),
+                    //z increments every time x completes a row, so every 8 blocks (renderdistance*2, which is 2^3)
+                    //z wraps every renderdistance*2 blocks
+                    z = ((int) PlayerPos.z + (index / (RenderDistance * 2)) % (RenderDistance * 2)) - RenderDistance
+                };
+
+                //Chunk pos is the position of a chunk in the world determined by the index in the job
+                ChunkEntities.TryAdd(chunk.pos, entity);
+                //multiply by size of chunk to get location in units
+                translation.Value = new float3(chunk.pos.x*16, chunk.pos.y*16, chunk.pos.z*16);
+            }
+            else
+            {
+                chunk.pos += ungenerated.offset;
+                //Debug.Log(chunk.pos);
+                translation.Value = chunk.pos * 16;
+
+                ChunkEntities.TryAdd(chunk.pos,entity);
             }
         }
     }

@@ -10,9 +10,6 @@ public class ChunkMeshGenerationSystem : JobComponentSystem
 {
     EntityQuery query;
 
-    //max size of 4096 triangles
-    //would happen if blocks were checkered in a chunk
-
     DelayedChunkMeshTaggingBufferSystem system;
 
     protected override void OnCreateManager()
@@ -37,6 +34,8 @@ public class ChunkMeshGenerationSystem : JobComponentSystem
                 ComponentType.ReadOnly<ChunkUpToDate>()
             }
         });
+
+
         //This shit doesn't work at all actually
         //query.SetFilterChanged(ComponentType.ReadOnly<BlockIDBuffer>());
         system = World.Active.GetOrCreateSystem<DelayedChunkMeshTaggingBufferSystem>();
@@ -53,7 +52,9 @@ public class ChunkMeshGenerationSystem : JobComponentSystem
             blocks = GetBufferFromEntity<BlockIDBuffer>(true),
             CommandBuffer = system.CreateCommandBuffer().ToConcurrent(),
             EntityType = GetArchetypeChunkEntityType(),
-            meshesThisFrame = 0
+            meshesThisFrame = 0,
+            ChunkEntities = Main.chunkEntities,
+            chunk = GetComponentDataFromEntity<Chunk>(true)
         };
         inputDeps = job.Schedule<GenerateMeshJob>(query, inputDeps);
         system.AddJobHandleForProducer(inputDeps);
@@ -74,14 +75,18 @@ public class ChunkMeshGenerationSystem : JobComponentSystem
         [NativeDisableParallelForRestriction] public BufferFromEntity<Triangle> Tris;
         [NativeDisableParallelForRestriction] public BufferFromEntity<Uv> Uvs;
         [NativeDisableParallelForRestriction] public BufferFromEntity<Normal> Normals;
+
         [ReadOnly] public ArchetypeChunkEntityType EntityType;
+        [ReadOnly] public ComponentDataFromEntity<Chunk> chunk;
 
         [NativeDisableParallelForRestriction] [ReadOnly] public BufferFromEntity<BlockIDBuffer> blocks;
+
+        [NativeDisableParallelForRestriction] [ReadOnly] public NativeHashMap<int3, Entity> ChunkEntities;
 
         public EntityCommandBuffer.Concurrent CommandBuffer;
         public int meshesThisFrame;
 
-        public void Execute(ArchetypeChunk chunk, int chunkIndex, int firstEntityIndex)
+        public void Execute(ArchetypeChunk archChunk, int chunkIndex, int firstEntityIndex)
         {
             //Testing updating meshes slowly
             if(meshesThisFrame > 8)
@@ -89,8 +94,9 @@ public class ChunkMeshGenerationSystem : JobComponentSystem
 
             meshesThisFrame++;
 
-            var entities = chunk.GetNativeArray(EntityType);
+            var entities = archChunk.GetNativeArray(EntityType);
             var entity = entities[0];
+
             if(Vertices[entity].Length > 0)
             {
                 //Debug.Log("had to clear");
@@ -102,15 +108,19 @@ public class ChunkMeshGenerationSystem : JobComponentSystem
 
             //TODO try without any variables and compare
 
-            int xOff = 1;
-            int yOff = 256;
-            int zOff = 16;
+            //int xOff = 1;
+            //int yOff = 256;
+            //int zOff = 16;
 
             int vertIndex = 0;
-
             ushort x, y, z;
+            int3 queriedChunkPos;
+            Entity e;
+            bool draw = false;
+
             for(ushort i = 0; i < 4096; i++)
             {
+                //yes, this is correct for now until I actually draw transparent stuff
                 if(blocks[entity][i] > 1999)
                     continue;
                 //x = i & 15;
@@ -120,10 +130,39 @@ public class ChunkMeshGenerationSystem : JobComponentSystem
                 //Solid cubical blocks are all under 2000
                 //since i likely cant access static data about block types
                 //some sort of inherent organization may be necessary for now
-                //left
                 //tris 6 others 4
                 //unity is cw for front facing triangles
-                if(x == 0 || blocks[entity][(int) MortonUtility.m3d_e_sLUT16((ushort) (x - 1), y, z)].Value > 1999)
+
+                //What is faster for checks, reassigning this value, or modifying it with math I wonder
+                //also test with different check orders, make sure it is optimized
+                
+                //left
+                draw = false;
+                if(x==0)
+                {
+
+                    queriedChunkPos = chunk[entity].pos;
+                    queriedChunkPos.x -= 1;
+                    if(ChunkEntities.TryGetValue(queriedChunkPos, out e))
+                    {
+                        //hopefully length is always greater than 
+                        //wrap x to 15, same y/z
+                        //block is transparent next to this one, so we must draw
+                        if(blocks[e][(int) MortonUtility.m3d_e_sLUT16((ushort) 15, y, z)].Value > 1999)
+                            draw = true;
+                    }
+                    else
+                    {
+                        //there is no chunk next to this one, so draw (this is the outside)
+                        draw = false;
+                    }
+                }
+                else if(blocks[entity][(int) MortonUtility.m3d_e_sLUT16((ushort) (x - 1), y, z)].Value > 1999)
+                {
+                    draw = true;
+                }
+
+                if(draw)
                 {
                     Normals[entity].Add(new float3(-1, 0, 0));
                     Normals[entity].Add(new float3(-1, 0, 0));
@@ -148,8 +187,29 @@ public class ChunkMeshGenerationSystem : JobComponentSystem
                     Uvs[entity].Add(new float3(0, 1, blocks[entity][i]));
                     vertIndex += 4;
                 }
+
                 //right
-                if(x == 15 || blocks[entity][(int) MortonUtility.m3d_e_sLUT16((ushort) (x + 1), y, z)].Value > 1999)
+                draw = false;
+                if(x == 15)
+                {
+                    queriedChunkPos = chunk[entity].pos;
+                    queriedChunkPos.x += 1;
+                    if(ChunkEntities.TryGetValue(queriedChunkPos, out e))
+                    {
+                        if(blocks[e][(int) MortonUtility.m3d_e_sLUT16((ushort) 0, y, z)].Value > 1999)
+                            draw = true;
+                    }
+                    else
+                    {
+                        draw = false;
+                    }
+                }
+                else if(blocks[entity][(int) MortonUtility.m3d_e_sLUT16((ushort) (x + 1), y, z)].Value > 1999)
+                {
+                    draw = true;
+                }
+
+                if(draw)
                 {
                     Normals[entity].Add(new float3(1, 0, 0));
                     Normals[entity].Add(new float3(1, 0, 0));
@@ -174,8 +234,29 @@ public class ChunkMeshGenerationSystem : JobComponentSystem
                     Uvs[entity].Add(new float3(0, 1, blocks[entity][i]));
                     vertIndex += 4;
                 }
+
                 //back
-                if(z == 0 || blocks[entity][(int) MortonUtility.m3d_e_sLUT16(x, y, (ushort) (z - 1))].Value > 1999)
+                draw = false;
+                if(z == 0)
+                {
+                    queriedChunkPos = chunk[entity].pos;
+                    queriedChunkPos.z -= 1;
+                    if(ChunkEntities.TryGetValue(queriedChunkPos, out e))
+                    {
+                        if(blocks[e][(int) MortonUtility.m3d_e_sLUT16((ushort) x, y, 15)].Value > 1999)
+                            draw = true;
+                    }
+                    else
+                    {
+                        draw = false;
+                    }
+                }
+                else if(blocks[entity][(int) MortonUtility.m3d_e_sLUT16(x, y, (ushort) (z - 1))].Value > 1999)
+                {
+                    draw = true;
+                }
+
+                if(draw)
                 {
                     Normals[entity].Add(new float3(0, 0, -1));
                     Normals[entity].Add(new float3(0, 0, -1));
@@ -200,8 +281,29 @@ public class ChunkMeshGenerationSystem : JobComponentSystem
                     Uvs[entity].Add(new float3(0, 1, blocks[entity][i]));
                     vertIndex += 4;
                 }
+
                 //front
-                if(z == 15 || blocks[entity][(int) MortonUtility.m3d_e_sLUT16(x, y, (ushort) (z + 1))].Value > 1999)
+                draw = false;
+                if(z == 15)
+                {
+                    queriedChunkPos = chunk[entity].pos;
+                    queriedChunkPos.z += 1;
+                    if(ChunkEntities.TryGetValue(queriedChunkPos, out e))
+                    {
+                        if(blocks[e][(int) MortonUtility.m3d_e_sLUT16((ushort) x, y, 0)].Value > 1999)
+                            draw = true;
+                    }
+                    else
+                    {
+                        draw = false;
+                    }
+                }
+                else if(blocks[entity][(int) MortonUtility.m3d_e_sLUT16(x, y, (ushort) (z + 1))].Value > 1999)
+                {
+                    draw = true;
+                }
+
+                if(draw)
                 {
                     Normals[entity].Add(new float3(0, 0, 1));
                     Normals[entity].Add(new float3(0, 0, 1));
@@ -226,8 +328,36 @@ public class ChunkMeshGenerationSystem : JobComponentSystem
                     Uvs[entity].Add(new float3(0, 1, blocks[entity][i]));
                     vertIndex += 4;
                 }
+
                 //below
-                if(y == 0 || blocks[entity][(int) MortonUtility.m3d_e_sLUT16(x, (ushort) (y - 1), z)].Value > 1999)
+                draw = false;
+                if(y == 0)
+                {
+                    if(chunk[entity].pos.y == 0)
+                    {
+                        draw = false;
+                    }
+                    else
+                    {
+                        queriedChunkPos = chunk[entity].pos;
+                        queriedChunkPos.y -= 1;
+                        if(ChunkEntities.TryGetValue(queriedChunkPos, out e))
+                        {
+                            if(blocks[e][(int) MortonUtility.m3d_e_sLUT16((ushort) x, 15, z)].Value > 1999)
+                                draw = true;
+                        }
+                        else
+                        {
+                            draw = false;
+                        }
+                    }
+                }
+                else if(blocks[entity][(int) MortonUtility.m3d_e_sLUT16(x, (ushort) (y - 1), z)].Value > 1999)
+                {
+                    draw = true;
+                }
+
+                if(draw)
                 {
                     Normals[entity].Add(new float3(0, -1, 0));
                     Normals[entity].Add(new float3(0, -1, 0));
@@ -252,8 +382,28 @@ public class ChunkMeshGenerationSystem : JobComponentSystem
                     Uvs[entity].Add(new float3(0, 1, blocks[entity][i]));
                     vertIndex += 4;
                 }
+
                 //above
-                if(y == 15 || blocks[entity][(int) MortonUtility.m3d_e_sLUT16(x, (ushort) (y + 1), z)].Value > 1999)
+                if(y == 15)
+                {
+                    queriedChunkPos = chunk[entity].pos;
+                    queriedChunkPos.y += 1;
+                    if(ChunkEntities.TryGetValue(queriedChunkPos, out e))
+                    {
+                        if(blocks[e][(int) MortonUtility.m3d_e_sLUT16((ushort) x, 0, z)].Value > 1999)
+                            draw = true;
+                    }
+                    else
+                    {
+                        draw = false;
+                    }
+                }
+                else if(blocks[entity][(int) MortonUtility.m3d_e_sLUT16(x, (ushort) (y + 1), z)].Value > 1999)
+                {
+                    draw = true;
+                }
+
+                if(draw)
                 {
                     Normals[entity].Add(new float3(0, 1, 0));
                     Normals[entity].Add(new float3(0, 1, 0));
@@ -279,6 +429,7 @@ public class ChunkMeshGenerationSystem : JobComponentSystem
                     vertIndex += 4;
                 }
             }
+
             //Tests suggest this is slower
             #region nested_loops
             //int i;

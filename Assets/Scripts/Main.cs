@@ -29,15 +29,31 @@ public class Main : MonoBehaviour
     private MeshSystem meshSetSystem;
     private readonly HashSet<Entity> entitySet = new HashSet<Entity>();
     private Material material;
+    private Plane[] frustumPlanes = new Plane[6];
+
+    [SerializeField] private Camera camera;
+
+    bool doOnce = true;
     
     EntityManager em;
+
+    public static NativeHashMap<int3, Entity> chunkEntities;
 
     static public bool InitDone { get => initDone; }
 
     //private InstancedRenderMeshBatchGroup instancedRenderMeshBatchGroup;
 
+    private void OnDestroy()
+    {
+        chunkEntities.Dispose();
+    }
+
     void Awake()
     {
+        chunkEntities =
+        new NativeHashMap<int3, Entity>(Settings.RenderDistance * Settings.RenderDistance * (Settings.WorldHeight / Settings.ChunkSize) * 4 * 100,
+            Allocator.Persistent);
+
         material = Resources.Load<Material>("Materials/New Material");
         em = World.Active.EntityManager;
 
@@ -47,7 +63,8 @@ public class Main : MonoBehaviour
             //ComponentType.ReadWrite<RenderMesh>(),
             //ComponentType.ReadWrite<Scale>(),
             ComponentType.ReadWrite<Chunk>(),
-            ComponentType.ReadOnly<Ungenerated>());
+            ComponentType.ReadOnly<Ungenerated>(),
+            ComponentType.ReadOnly<ShouldDraw>());
 
         var playerAT = em.CreateArchetype(
             ComponentType.ReadWrite<Translation>(),
@@ -89,10 +106,13 @@ public class Main : MonoBehaviour
             entitySet.Add(temp);
 
         }
-
-        chunkDataGenerationSystem = World.Active.GetOrCreateSystem<ChunkBlockIDFill>();
-        chunkMeshBufferFillSystem = World.Active.GetOrCreateSystem<ChunkMeshGenerationSystem>();
-        meshSetSystem = World.Active.GetOrCreateSystem<MeshSystem>();
+        //World.Active.GetOrCreateSystem<DrawMeshSystem>();
+        World.Active.CreateSystem<DrawMeshSystem>();
+        World.Active.GetExistingSystem<DrawMeshSystem>().Enabled = true;
+        //Debug.Log(World.Active.GetExistingSystem<DrawMeshSystem>());
+        //chunkDataGenerationSystem = World.Active.GetOrCreateSystem<ChunkBlockIDFill>();
+        //chunkMeshBufferFillSystem = World.Active.GetOrCreateSystem<ChunkMeshGenerationSystem>();
+        //meshSetSystem = World.Active.GetOrCreateSystem<MeshSystem>();
         initDone = true;
         //World.Active.DestroySystem();
         World.Active.GetExistingSystem<PresentationSystemGroup>().Enabled = false;
@@ -115,56 +135,48 @@ public class Main : MonoBehaviour
         //        }
         //    }
         //}
+
+        for(int i = 0; i < 8; i++)
+        {
+            //if(p[0].x * (pos.x + + p[0].y * ( pos.y +  ) + p[0].z * ( pos.z +  ) + p[0].w > 0)
+            Debug.Log(((i & 1) << 4) + " " + (((i >> 1) & 1) << 4) + " " + (((i >> 2) & 1) << 4));
+        }
+    }
+
+    private void FixedUpdate()
+    {
+        //Debug.Log(chunkEntities.Length);
     }
 
     private void Update()
     {
-        //Just getting the components takes 2.5 ms
-        foreach(Entity e in entitySet)
-        {
-            //if(em.HasComponent<Ungenerated>(e))
-            //    continue;
-            //Graphics.DrawMesh(em.GetSharedComponentData<RenderMesh>(e).mesh, em.GetComponentData<Translation>(e).Value, Quaternion.identity, material, 0);
-
-            if(!em.HasComponent<ChunkUpToDate>(e))
-                continue;
-            Graphics.DrawMesh(MeshSystem.meshes[e], em.GetComponentData<Translation>(e).Value, Quaternion.identity, material, 0);
-            //if(MeshSystem.meshes.ContainsKey(e))
-            //{
-            
-            //}
-
-            //em.GetSharedComponentData<RenderMesh>(e);
-            //em.GetComponentData<Translation>(e);
-        }
+        World.Active.GetExistingSystem<DrawMeshSystem>().Update();
         
 
-        //chunkDataGenerationSystem.Update();
-        //chunkMeshBufferFillSystem.Update();
-        //meshSetSystem.Update();
-        #region chunkgeneration_timing
-        //if(!UseParallel)
+        //frustumPlanes = GeometryUtility.CalculateFrustumPlanes(camera);
+        //int3 chunkPos;
+        ////Just getting the components takes 2.5 ms
+        //foreach(Entity e in entitySet)
         //{
-        //    start = Time.realtimeSinceStartup;
-        //    PopulateChunkJob populateChunkJob = new PopulateChunkJob
-        //    {
-        //        blocks = chunk
-        //    };
-        //    JobHandle jobHandle = populateChunkJob.Schedule();
-        //    jobHandle.Complete();
-        //    Debug.Log(((Time.realtimeSinceStartup - start) * 1000f) + "ms");
+        //    if(!em.HasComponent<ChunkUpToDate>(e))
+        //        continue;
+        //    chunkPos = em.GetComponentData<Chunk>(e).pos;
+        //    if(GeometryUtility.TestPlanesAABB(frustumPlanes, new Bounds())
+        //    Graphics.DrawMesh(MeshSystem.meshes[e], em.GetComponentData<Translation>(e).Value, Quaternion.identity, material, 0);
         //}
-        //else
-        //{
-        //    start = Time.realtimeSinceStartup;
-        //    PopulateChunkJobParallel populateChunkJobParallel = new PopulateChunkJobParallel
-        //    {
-        //        blocks = chunk
-        //    };
-        //    JobHandle jobHandle2 = populateChunkJobParallel.Schedule(16 * Settings.WorldHeight * 16, 8192);
-        //    jobHandle2.Complete();
-        //    Debug.Log(((Time.realtimeSinceStartup - start) * 1000f) + "ms");
-        //}
-        #endregion
+    }
+
+    private void LateUpdate()
+    {
+        World.Active.GetExistingSystem<DrawMeshSystem>().CompleteJob();
+        int3 chunkPos;
+        foreach(Entity e in entitySet)
+        {
+            if(em.HasComponent<ShouldDraw>(e) && em.GetComponentData<ShouldDraw>(e).Value == true)
+            { 
+                chunkPos = em.GetComponentData<Chunk>(e).pos;
+                Graphics.DrawMesh(MeshSystem.meshes[e], new Vector3(chunkPos.x*16, chunkPos.y * 16, chunkPos.z * 16), Quaternion.identity, material, 0);
+            }
+        }
     }
 }
