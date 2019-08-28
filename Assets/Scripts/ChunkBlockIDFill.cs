@@ -162,41 +162,64 @@ public class ChunkBlockIDFill : JobComponentSystem
         //x = mod width
         public EntityCommandBuffer.Concurrent CommandBuffer;
         //Proof of concept being done with renderdistance = 4
-        public void Execute(Entity entity, int index, ref Translation translation, [ReadOnly] ref Chunk chunk, [ReadOnly] ref Ungenerated ungenerated)
+        public void Execute(Entity entity, int index, [ReadOnly] ref Translation translation, [ReadOnly] ref Chunk chunk, [ReadOnly] ref Ungenerated ungenerated)
         {
             ushort x, y, z;
             int height;
-
+            const ushort transparent = 1 << 15;
             //First init
-            if(blocks[entity].Length == 0)
-            {
-                for(ushort i = 0; i < 16 * 16 * 16; i++)
-                {
-                    //x = i & 15;
-                    //y = i >> 8;
-                    //z = (i >> 4) & 15;
-                    MortonUtility.m3d_d_sLUT16(i, &x, &y, &z);
-                    //1/128 = 0.0078125‬f
-                    height = (32 + (int) (noise((translation.Value.x + x) * 0.0078125f, (translation.Value.z + z) * 0.0078125f) * 16.0f));
-                    blocks[entity].Add(((chunk.pos.y * 16 + y) < height ? (ushort) 0 : (ushort) (2000)));
-                }
-                CommandBuffer.RemoveComponent<Ungenerated>(index, entity);
-            }
-            else
-            {
-                blocks[entity].Clear();
+            //if(blocks[entity].Length == 0)
+            //{
+            //    for(ushort i = 0; i < 16 * 16 * 16; i++)
+            //    {
+            //        //x = i & 15;
+            //        //y = i >> 8;
+            //        //z = (i >> 4) & 15;
+            //        MortonUtility.m3d_d_sLUT16(i, &x, &y, &z);
+            //        //1/128 = 0.0078125‬f
+            //        height = (32 + (int) (noise((translation.Value.x + x) * 0.0078125f, (translation.Value.z + z) * 0.0078125f) * 16.0f));
+            //        blocks[entity].Add(((chunk.pos.y * 16 + y) < height ? (ushort) 0 : (ushort) (transparent + 1)));
+            //    }
+            //    CommandBuffer.RemoveComponent<Ungenerated>(index, entity);
+            //}
 
-                for(ushort i = 0; i < 16 * 16 * 16; i++)
+            blocks[entity].Clear();
+
+            for(ushort i = 0; i < 16 * 16 * 16; i++)
+            {
+                //x = i & 15;
+                //y = i >> 8;
+                //z = (i >> 4) & 15;
+                MortonUtility.m3d_d_sLUT16(i, &x, &y, &z);
+                height = (40 + (int) (noise((translation.Value.x + x) * 0.0078125f, (translation.Value.z + z) * 0.0078125f) * 24.0f));
+                if(translation.Value.y + y < height)
                 {
-                    //x = i & 15;
-                    //y = i >> 8;
-                    //z = (i >> 4) & 15;
-                    MortonUtility.m3d_d_sLUT16(i, &x, &y, &z);
-                    height = (32 + (int) (noise((translation.Value.x + x) * 0.0078125f, (translation.Value.z + z) * 0.0078125f) * 16.0f));
-                    blocks[entity].Add(((translation.Value.y + y) < height ? (ushort) 0 : (ushort) (2000)));
+                    if(translation.Value.y + y < 32)
+                    {
+                        //sand
+                        blocks[entity].Add(4);
+                    }
+                    else
+                    {
+                        //dirt
+                        blocks[entity].Add(0);
+                    }
                 }
-                CommandBuffer.RemoveComponent<Ungenerated>(index, entity);
+                else
+                {
+                    if(translation.Value.y + y < 26)
+                    {
+                        //water
+                        blocks[entity].Add(transparent + 3);
+                    }
+                    else
+                    {
+                        //air
+                        blocks[entity].Add(transparent + 1);
+                    }
+                }
             }
+            CommandBuffer.RemoveComponent<Ungenerated>(index, entity);
         }
 
         //This hopefully will get faster once entity commandbuffers can be burst compiled, then all this code can be too.
@@ -313,7 +336,7 @@ public class ChunkBlockIDFill : JobComponentSystem
             return 45.23065f * (n0 + n1 + n2);
         }
     }
-
+    [BurstCompile]
     unsafe struct PositionChunksJob : IJobForEachWithEntity<Translation, Ungenerated, Chunk>
     {
         [NativeDisableParallelForRestriction] public BufferFromEntity<BlockIDBuffer> blocks;
@@ -351,6 +374,9 @@ public class ChunkBlockIDFill : JobComponentSystem
                 //Debug.Log(chunk.pos);
                 translation.Value = chunk.pos * 16;
 
+                //TODO really need a replacement for this..
+                //what happens when I come back to the same chunk and it tries to rewrite what entity it is?
+                //It probably gets messed up
                 ChunkEntities.TryAdd(chunk.pos, entity);
             }
         }

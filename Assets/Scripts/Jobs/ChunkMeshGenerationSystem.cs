@@ -12,7 +12,7 @@ public class ChunkMeshGenerationSystem : JobComponentSystem
 
     DelayedChunkMeshTaggingBufferSystem system;
 
-    protected override void OnCreateManager()
+    protected override void OnCreate()
     {
         query = GetEntityQuery(new EntityQueryDesc()
         {
@@ -96,7 +96,7 @@ public class ChunkMeshGenerationSystem : JobComponentSystem
                 return;
 
             meshesThisFrame++;
-
+            const ushort transparent = 1 << 15;
             var entities = archChunk.GetNativeArray(EntityType);
             var entity = entities[0];
 
@@ -120,11 +120,12 @@ public class ChunkMeshGenerationSystem : JobComponentSystem
             int3 queriedChunkPos;
             Entity e;
             bool draw = false;
+            ushort currBlock=0;
 
             for(ushort i = 0; i < 4096; i++)
             {
-                //yes, this is correct for now until I actually draw transparent stuff
-                if(blocks[entity][i] > 1999)
+                //skip air
+                if(blocks[entity][i] == (transparent+1))
                     continue;
                 //x = i & 15;
                 //y = i >> 8;
@@ -138,12 +139,15 @@ public class ChunkMeshGenerationSystem : JobComponentSystem
 
                 //What is faster for checks, reassigning this value, or modifying it with math I wonder
                 //also test with different check orders, make sure it is optimized
-                
+
+                currBlock = blocks[entity][i];
+                //c# is dumb and returns an int when ~-ing ushorts so i have to take only the bits I need from that
+                currBlock &= (~transparent & 0xFFFF);
+
                 //left
                 draw = false;
                 if(x==0)
                 {
-
                     queriedChunkPos = chunk[entity].pos;
                     queriedChunkPos.x -= 1;
                     if(ChunkEntities.TryGetValue(queriedChunkPos, out e))
@@ -151,7 +155,7 @@ public class ChunkMeshGenerationSystem : JobComponentSystem
                         //hopefully length is always greater than 
                         //wrap x to 15, same y/z
                         //block is transparent next to this one, so we must draw
-                        if(blocks[e][(int) MortonUtility.m3d_e_sLUT16((ushort) 15, y, z)].Value > 1999)
+                        if(blocks[e][(int) MortonUtility.m3d_e_sLUT16((ushort) 15, y, z)].Value > transparent)
                             draw = true;
                     }
                     else
@@ -160,7 +164,7 @@ public class ChunkMeshGenerationSystem : JobComponentSystem
                         draw = false;
                     }
                 }
-                else if(blocks[entity][(int) MortonUtility.m3d_e_sLUT16((ushort) (x - 1), y, z)].Value > 1999)
+                else if(blocks[entity][(int) MortonUtility.m3d_e_sLUT16((ushort) (x - 1), y, z)].Value > transparent)
                 {
                     draw = true;
                 }
@@ -173,21 +177,32 @@ public class ChunkMeshGenerationSystem : JobComponentSystem
                     Normals[entity].Add(new float3(-1, 0, 0));
 
                     Vertices[entity].Add(new float3(x + 0, y + 0, z + 0));
-                    Vertices[entity].Add(new float3(x + 0, y + 0, z + 1));
                     Vertices[entity].Add(new float3(x + 0, y + 1, z + 0));
                     Vertices[entity].Add(new float3(x + 0, y + 1, z + 1));
+                    Vertices[entity].Add(new float3(x + 0, y + 0, z + 1));
 
                     Tris[entity].Add(vertIndex + 0);
-                    Tris[entity].Add(vertIndex + 1);
                     Tris[entity].Add(vertIndex + 2);
+                    Tris[entity].Add(vertIndex + 1);
+                    Tris[entity].Add(vertIndex + 0);
                     Tris[entity].Add(vertIndex + 3);
                     Tris[entity].Add(vertIndex + 2);
-                    Tris[entity].Add(vertIndex + 1);
 
-                    Uvs[entity].Add(new float3(0, 0, blocks[entity][i]));
-                    Uvs[entity].Add(new float3(1, 0, blocks[entity][i]));
-                    Uvs[entity].Add(new float3(1, 1, blocks[entity][i]));
-                    Uvs[entity].Add(new float3(0, 1, blocks[entity][i]));
+                    //I could use ternary to make it look cleaner but this saves on compares
+                    if(currBlock==0)
+                    {
+                        Uvs[entity].Add(new float3(1, 0, currBlock+1));
+                        Uvs[entity].Add(new float3(1, 1, currBlock+1));
+                        Uvs[entity].Add(new float3(0, 1, currBlock+1));
+                        Uvs[entity].Add(new float3(0, 0, currBlock + 1));
+                    }
+                    else
+                    {
+                        Uvs[entity].Add(new float3(1, 0, currBlock));
+                        Uvs[entity].Add(new float3(1, 1, currBlock));
+                        Uvs[entity].Add(new float3(0, 1, currBlock));
+                        Uvs[entity].Add(new float3(0, 0, currBlock));
+                    }
                     vertIndex += 4;
                 }
 
@@ -199,7 +214,7 @@ public class ChunkMeshGenerationSystem : JobComponentSystem
                     queriedChunkPos.x += 1;
                     if(ChunkEntities.TryGetValue(queriedChunkPos, out e))
                     {
-                        if(blocks[e][(int) MortonUtility.m3d_e_sLUT16((ushort) 0, y, z)].Value > 1999)
+                        if(blocks[e][(int) MortonUtility.m3d_e_sLUT16((ushort) 0, y, z)].Value > transparent)
                             draw = true;
                     }
                     else
@@ -207,7 +222,7 @@ public class ChunkMeshGenerationSystem : JobComponentSystem
                         draw = false;
                     }
                 }
-                else if(blocks[entity][(int) MortonUtility.m3d_e_sLUT16((ushort) (x + 1), y, z)].Value > 1999)
+                else if(blocks[entity][(int) MortonUtility.m3d_e_sLUT16((ushort) (x + 1), y, z)].Value > transparent)
                 {
                     draw = true;
                 }
@@ -220,21 +235,31 @@ public class ChunkMeshGenerationSystem : JobComponentSystem
                     Normals[entity].Add(new float3(1, 0, 0));
 
                     Vertices[entity].Add(new float3(x + 1, y + 0, z + 0));
-                    Vertices[entity].Add(new float3(x + 1, y + 0, z + 1));
                     Vertices[entity].Add(new float3(x + 1, y + 1, z + 0));
                     Vertices[entity].Add(new float3(x + 1, y + 1, z + 1));
+                    Vertices[entity].Add(new float3(x + 1, y + 0, z + 1));
 
-                    Tris[entity].Add(vertIndex + 2);
-                    Tris[entity].Add(vertIndex + 1);
                     Tris[entity].Add(vertIndex + 0);
                     Tris[entity].Add(vertIndex + 1);
                     Tris[entity].Add(vertIndex + 2);
+                    Tris[entity].Add(vertIndex + 0);
+                    Tris[entity].Add(vertIndex + 2);
                     Tris[entity].Add(vertIndex + 3);
 
-                    Uvs[entity].Add(new float3(0, 0, blocks[entity][i]));
-                    Uvs[entity].Add(new float3(1, 0, blocks[entity][i]));
-                    Uvs[entity].Add(new float3(1, 1, blocks[entity][i]));
-                    Uvs[entity].Add(new float3(0, 1, blocks[entity][i]));
+                    if(currBlock == 0)
+                    {
+                        Uvs[entity].Add(new float3(1, 0, currBlock + 1));
+                        Uvs[entity].Add(new float3(1, 1, currBlock + 1));
+                        Uvs[entity].Add(new float3(0, 1, currBlock + 1));
+                        Uvs[entity].Add(new float3(0, 0, currBlock + 1));
+                    }
+                    else
+                    {
+                        Uvs[entity].Add(new float3(1, 0, currBlock));
+                        Uvs[entity].Add(new float3(1, 1, currBlock));
+                        Uvs[entity].Add(new float3(0, 1, currBlock));
+                        Uvs[entity].Add(new float3(0, 0, currBlock));
+                    }
                     vertIndex += 4;
                 }
 
@@ -246,7 +271,7 @@ public class ChunkMeshGenerationSystem : JobComponentSystem
                     queriedChunkPos.z -= 1;
                     if(ChunkEntities.TryGetValue(queriedChunkPos, out e))
                     {
-                        if(blocks[e][(int) MortonUtility.m3d_e_sLUT16((ushort) x, y, 15)].Value > 1999)
+                        if(blocks[e][(int) MortonUtility.m3d_e_sLUT16((ushort) x, y, 15)].Value > transparent)
                             draw = true;
                     }
                     else
@@ -254,7 +279,7 @@ public class ChunkMeshGenerationSystem : JobComponentSystem
                         draw = false;
                     }
                 }
-                else if(blocks[entity][(int) MortonUtility.m3d_e_sLUT16(x, y, (ushort) (z - 1))].Value > 1999)
+                else if(blocks[entity][(int) MortonUtility.m3d_e_sLUT16(x, y, (ushort) (z - 1))].Value > transparent)
                 {
                     draw = true;
                 }
@@ -278,10 +303,20 @@ public class ChunkMeshGenerationSystem : JobComponentSystem
                     Tris[entity].Add(vertIndex + 2);
                     Tris[entity].Add(vertIndex + 3);
 
-                    Uvs[entity].Add(new float3(0, 0, blocks[entity][i]));
-                    Uvs[entity].Add(new float3(1, 0, blocks[entity][i]));
-                    Uvs[entity].Add(new float3(1, 1, blocks[entity][i]));
-                    Uvs[entity].Add(new float3(0, 1, blocks[entity][i]));
+                    if(currBlock == 0)
+                    {
+                        Uvs[entity].Add(new float3(1, 0, currBlock + 1));
+                        Uvs[entity].Add(new float3(1, 1, currBlock + 1));
+                        Uvs[entity].Add(new float3(0, 1, currBlock + 1));
+                        Uvs[entity].Add(new float3(0, 0, currBlock + 1));
+                    }
+                    else
+                    {
+                        Uvs[entity].Add(new float3(1, 0, currBlock));
+                        Uvs[entity].Add(new float3(1, 1, currBlock));
+                        Uvs[entity].Add(new float3(0, 1, currBlock));
+                        Uvs[entity].Add(new float3(0, 0, currBlock));
+                    }
                     vertIndex += 4;
                 }
 
@@ -293,7 +328,7 @@ public class ChunkMeshGenerationSystem : JobComponentSystem
                     queriedChunkPos.z += 1;
                     if(ChunkEntities.TryGetValue(queriedChunkPos, out e))
                     {
-                        if(blocks[e][(int) MortonUtility.m3d_e_sLUT16((ushort) x, y, 0)].Value > 1999)
+                        if(blocks[e][(int) MortonUtility.m3d_e_sLUT16((ushort) x, y, 0)].Value > transparent)
                             draw = true;
                     }
                     else
@@ -301,7 +336,7 @@ public class ChunkMeshGenerationSystem : JobComponentSystem
                         draw = false;
                     }
                 }
-                else if(blocks[entity][(int) MortonUtility.m3d_e_sLUT16(x, y, (ushort) (z + 1))].Value > 1999)
+                else if(blocks[entity][(int) MortonUtility.m3d_e_sLUT16(x, y, (ushort) (z + 1))].Value > transparent)
                 {
                     draw = true;
                 }
@@ -325,10 +360,20 @@ public class ChunkMeshGenerationSystem : JobComponentSystem
                     Tris[entity].Add(vertIndex + 2);
                     Tris[entity].Add(vertIndex + 0);
 
-                    Uvs[entity].Add(new float3(0, 0, blocks[entity][i]));
-                    Uvs[entity].Add(new float3(1, 0, blocks[entity][i]));
-                    Uvs[entity].Add(new float3(1, 1, blocks[entity][i]));
-                    Uvs[entity].Add(new float3(0, 1, blocks[entity][i]));
+                    if(currBlock == 0)
+                    {
+                        Uvs[entity].Add(new float3(1, 0, currBlock + 1));
+                        Uvs[entity].Add(new float3(1, 1, currBlock + 1));
+                        Uvs[entity].Add(new float3(0, 1, currBlock + 1));
+                        Uvs[entity].Add(new float3(0, 0, currBlock + 1));
+                    }
+                    else
+                    {
+                        Uvs[entity].Add(new float3(1, 0, currBlock));
+                        Uvs[entity].Add(new float3(1, 1, currBlock));
+                        Uvs[entity].Add(new float3(0, 1, currBlock));
+                        Uvs[entity].Add(new float3(0, 0, currBlock));
+                    }
                     vertIndex += 4;
                 }
 
@@ -346,7 +391,7 @@ public class ChunkMeshGenerationSystem : JobComponentSystem
                         queriedChunkPos.y -= 1;
                         if(ChunkEntities.TryGetValue(queriedChunkPos, out e))
                         {
-                            if(blocks[e][(int) MortonUtility.m3d_e_sLUT16((ushort) x, 15, z)].Value > 1999)
+                            if(blocks[e][(int) MortonUtility.m3d_e_sLUT16((ushort) x, 15, z)].Value > transparent)
                                 draw = true;
                         }
                         else
@@ -355,7 +400,7 @@ public class ChunkMeshGenerationSystem : JobComponentSystem
                         }
                     }
                 }
-                else if(blocks[entity][(int) MortonUtility.m3d_e_sLUT16(x, (ushort) (y - 1), z)].Value > 1999)
+                else if(blocks[entity][(int) MortonUtility.m3d_e_sLUT16(x, (ushort) (y - 1), z)].Value > transparent)
                 {
                     draw = true;
                 }
@@ -379,10 +424,20 @@ public class ChunkMeshGenerationSystem : JobComponentSystem
                     Tris[entity].Add(vertIndex + 2);
                     Tris[entity].Add(vertIndex + 0);
 
-                    Uvs[entity].Add(new float3(0, 0, blocks[entity][i]));
-                    Uvs[entity].Add(new float3(1, 0, blocks[entity][i]));
-                    Uvs[entity].Add(new float3(1, 1, blocks[entity][i]));
-                    Uvs[entity].Add(new float3(0, 1, blocks[entity][i]));
+                    if(currBlock == 0)
+                    {
+                        Uvs[entity].Add(new float3(0, 0, currBlock + 2));
+                        Uvs[entity].Add(new float3(1, 0, currBlock + 2));
+                        Uvs[entity].Add(new float3(1, 1, currBlock + 2));
+                        Uvs[entity].Add(new float3(0, 1, currBlock + 2));
+                    }
+                    else
+                    {
+                        Uvs[entity].Add(new float3(0, 0, currBlock));
+                        Uvs[entity].Add(new float3(1, 0, currBlock));
+                        Uvs[entity].Add(new float3(1, 1, currBlock));
+                        Uvs[entity].Add(new float3(0, 1, currBlock));
+                    }
                     vertIndex += 4;
                 }
 
@@ -393,7 +448,7 @@ public class ChunkMeshGenerationSystem : JobComponentSystem
                     queriedChunkPos.y += 1;
                     if(ChunkEntities.TryGetValue(queriedChunkPos, out e))
                     {
-                        if(blocks[e][(int) MortonUtility.m3d_e_sLUT16((ushort) x, 0, z)].Value > 1999)
+                        if(blocks[e][(int) MortonUtility.m3d_e_sLUT16((ushort) x, 0, z)].Value > transparent)
                             draw = true;
                     }
                     else
@@ -401,7 +456,7 @@ public class ChunkMeshGenerationSystem : JobComponentSystem
                         draw = false;
                     }
                 }
-                else if(blocks[entity][(int) MortonUtility.m3d_e_sLUT16(x, (ushort) (y + 1), z)].Value > 1999)
+                else if(blocks[entity][(int) MortonUtility.m3d_e_sLUT16(x, (ushort) (y + 1), z)].Value > transparent)
                 {
                     draw = true;
                 }
@@ -425,10 +480,10 @@ public class ChunkMeshGenerationSystem : JobComponentSystem
                     Tris[entity].Add(vertIndex + 2);
                     Tris[entity].Add(vertIndex + 3);
 
-                    Uvs[entity].Add(new float3(0, 0, blocks[entity][i]));
-                    Uvs[entity].Add(new float3(1, 0, blocks[entity][i]));
-                    Uvs[entity].Add(new float3(1, 1, blocks[entity][i]));
-                    Uvs[entity].Add(new float3(0, 1, blocks[entity][i]));
+                    Uvs[entity].Add(new float3(0, 0, currBlock));
+                    Uvs[entity].Add(new float3(1, 0, currBlock));
+                    Uvs[entity].Add(new float3(1, 1, currBlock));
+                    Uvs[entity].Add(new float3(0, 1, currBlock));
                     vertIndex += 4;
                 }
             }
@@ -443,7 +498,7 @@ public class ChunkMeshGenerationSystem : JobComponentSystem
             //        for(int x = 0; x < 16; x++)
             //        {
             //            i = (z << 4) + (y << 8) + x;
-            //            if(blocks[entity][i] > 1999)
+            //            if(blocks[entity][i] > transparent)
             //                continue;
             //            Solid cubical blocks are all under 2000
             //            since i likely cant access static data about block types
@@ -451,7 +506,7 @@ public class ChunkMeshGenerationSystem : JobComponentSystem
             //            left
             //            tris 6 others 4
             //            unity is cw for front facing triangles
-            //            if(x == 0 || blocks[entity][i - xOff].Value > 1999)
+            //            if(x == 0 || blocks[entity][i - xOff].Value > transparent)
             //                    {
             //                        Normals[entity].Add(new float3(-1, 0, 0));
             //                        Normals[entity].Add(new float3(-1, 0, 0));
@@ -477,7 +532,7 @@ public class ChunkMeshGenerationSystem : JobComponentSystem
             //                        vertIndex += 4;
             //                    }
             //            right
-            //            if(x == 15 || blocks[entity][i + xOff].Value > 1999)
+            //            if(x == 15 || blocks[entity][i + xOff].Value > transparent)
             //            {
             //                Normals[entity].Add(new float3(1, 0, 0));
             //                Normals[entity].Add(new float3(1, 0, 0));
@@ -503,7 +558,7 @@ public class ChunkMeshGenerationSystem : JobComponentSystem
             //                vertIndex += 4;
             //            }
             //            back
-            //            if(z == 0 || blocks[entity][i - zOff].Value > 1999)
+            //            if(z == 0 || blocks[entity][i - zOff].Value > transparent)
             //            {
             //                Normals[entity].Add(new float3(0, 0, -1));
             //                Normals[entity].Add(new float3(0, 0, -1));
@@ -529,7 +584,7 @@ public class ChunkMeshGenerationSystem : JobComponentSystem
             //                vertIndex += 4;
             //            }
             //            front
-            //            if(z == 15 || blocks[entity][i + zOff].Value > 1999)
+            //            if(z == 15 || blocks[entity][i + zOff].Value > transparent)
             //            {
             //                Normals[entity].Add(new float3(0, 0, 1));
             //                Normals[entity].Add(new float3(0, 0, 1));
@@ -555,7 +610,7 @@ public class ChunkMeshGenerationSystem : JobComponentSystem
             //                vertIndex += 4;
             //            }
             //            below
-            //            if(y == 0 || blocks[entity][i - yOff].Value > 1999)
+            //            if(y == 0 || blocks[entity][i - yOff].Value > transparent)
             //            {
             //                Normals[entity].Add(new float3(0, -1, 0));
             //                Normals[entity].Add(new float3(0, -1, 0));
@@ -581,7 +636,7 @@ public class ChunkMeshGenerationSystem : JobComponentSystem
             //                vertIndex += 4;
             //            }
             //            above
-            //            if(y == 15 || blocks[entity][i + yOff].Value > 1999)
+            //            if(y == 15 || blocks[entity][i + yOff].Value > transparent)
             //            {
             //                Normals[entity].Add(new float3(0, 1, 0));
             //                Normals[entity].Add(new float3(0, 1, 0));

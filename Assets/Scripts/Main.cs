@@ -6,6 +6,7 @@ using Unity.Jobs;
 using Unity.Mathematics;
 using Unity.Rendering;
 using Unity.Transforms;
+using UnityEditor;
 using UnityEngine;
 
 public class Main : MonoBehaviour
@@ -31,7 +32,9 @@ public class Main : MonoBehaviour
     private Material material;
     private Plane[] frustumPlanes = new Plane[6];
 
-    [SerializeField] private Camera camera;
+    [SerializeField] private Texture2D[] textures;
+
+    //[SerializeField] private Camera camera;
 
     bool doOnce = true;
     
@@ -50,11 +53,11 @@ public class Main : MonoBehaviour
 
     void Awake()
     {
+        //TODO URGENT find a better way to deal with this
         chunkEntities =
         new NativeHashMap<int3, Entity>(Settings.RenderDistance * Settings.RenderDistance * (Settings.WorldHeight / Settings.ChunkSize) * 4 * 100,
             Allocator.Persistent);
 
-        material = Resources.Load<Material>("Materials/New Material");
         em = World.Active.EntityManager;
 
         var blockChunk = em.CreateArchetype(
@@ -117,7 +120,7 @@ public class Main : MonoBehaviour
         //World.Active.DestroySystem();
         World.Active.GetExistingSystem<PresentationSystemGroup>().Enabled = false;
 
-        //
+        //Morton curve code port testing
         //unsafe
         //{
         //    ushort i, j, k = 0;
@@ -136,11 +139,21 @@ public class Main : MonoBehaviour
         //    }
         //}
 
-        for(int i = 0; i < 8; i++)
-        {
-            //if(p[0].x * (pos.x + + p[0].y * ( pos.y +  ) + p[0].z * ( pos.z +  ) + p[0].w > 0)
-            Debug.Log(((i & 1) << 4) + " " + (((i >> 1) & 1) << 4) + " " + (((i >> 2) & 1) << 4));
-        }
+
+        //Create texture2darray
+        //Texture2DArray t = new Texture2DArray(32, 32, textures.Length, 
+        //    UnityEngine.Experimental.Rendering.DefaultFormat.LDR, UnityEngine.Experimental.Rendering.TextureCreationFlags.None);
+        //for(int i = 0; i < textures.Length; i++)
+        //{
+        //    t.SetPixels(textures[i].GetPixels(),i);
+        //}
+
+        //t.Apply();
+        
+        //AssetDatabase.CreateAsset(t, "Assets/Sprites/TerrainAtlas.asset");
+
+        material = Resources.Load<Material>("Materials/ArrayTexture");
+        //material.SetTexture("_Textures", t);
     }
 
     private void FixedUpdate()
@@ -172,7 +185,7 @@ public class Main : MonoBehaviour
         int3 chunkPos;
         foreach(Entity e in entitySet)
         {
-            if(em.HasComponent<ShouldDraw>(e) && em.GetComponentData<ShouldDraw>(e).Value == true)
+            if(em.HasComponent<ShouldDraw>(e) && em.GetComponentData<ShouldDraw>(e).Value == true && em.HasComponent<ChunkUpToDate>(e))
             { 
                 chunkPos = em.GetComponentData<Chunk>(e).pos;
                 Graphics.DrawMesh(MeshSystem.meshes[e], new Vector3(chunkPos.x*16, chunkPos.y * 16, chunkPos.z * 16), Quaternion.identity, material, 0);

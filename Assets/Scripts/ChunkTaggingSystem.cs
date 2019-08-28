@@ -16,7 +16,7 @@ public class ChunkTaggingSystem : JobComponentSystem
     private TagAsUngeneratedECBS system;
     private GameObject camera;
     
-    protected override void OnCreateManager()
+    protected override void OnCreate()
     {
         camera = GameObject.FindObjectOfType<Camera>().gameObject;
 
@@ -24,7 +24,10 @@ public class ChunkTaggingSystem : JobComponentSystem
         {
             All = new ComponentType[] {
                 ComponentType.ReadOnly<Translation>(),
-                ComponentType.ReadOnly<Chunk>(),
+                //Only move complete chunks otherwise chunk errors pop up
+                //since im moving chunks while they are generating and they dont restart their generation
+                //ComponentType.ReadOnly<Chunk>(),
+                ComponentType.ReadOnly<ChunkUpToDate>()
             },
             Any = System.Array.Empty<ComponentType>(),
             None = new ComponentType[]

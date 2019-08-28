@@ -36,7 +36,7 @@ public class MeshSystem : ComponentSystem
     public class RemoveMeshDirtyECB : EntityCommandBufferSystem { }
     RemoveMeshDirtyECB system; 
     /// <inheritdoc/>
-    protected override void OnCreateManager()
+    protected override void OnCreate()
     {
         meshDirtyQuery = GetEntityQuery(new EntityQueryDesc()
         {
@@ -135,6 +135,7 @@ public class MeshSystem : ComponentSystem
         if(vertices.Length == 0)
         {
             //Debug.Log("Vertices length was 0?");
+            //meshes[e].Clear();
             return;
         }
 
