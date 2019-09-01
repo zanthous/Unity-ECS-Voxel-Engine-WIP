@@ -120,12 +120,12 @@ public class ChunkMeshGenerationSystem : JobComponentSystem
             int3 queriedChunkPos;
             Entity e;
             bool draw = false;
-            ushort currBlock=0;
+            ushort currBlock = 0;
 
             for(ushort i = 0; i < 4096; i++)
             {
                 //skip air
-                if(blocks[entity][i] == (transparent+1))
+                if(blocks[entity][i] == (transparent + 1))
                     continue;
                 //x = i & 15;
                 //y = i >> 8;
@@ -146,7 +146,7 @@ public class ChunkMeshGenerationSystem : JobComponentSystem
 
                 //left
                 draw = false;
-                if(x==0)
+                if(x == 0)
                 {
                     queriedChunkPos = chunk[entity].pos;
                     queriedChunkPos.x -= 1;
@@ -189,11 +189,11 @@ public class ChunkMeshGenerationSystem : JobComponentSystem
                     Tris[entity].Add(vertIndex + 2);
 
                     //I could use ternary to make it look cleaner but this saves on compares
-                    if(currBlock==0)
+                    if(currBlock == 0)
                     {
-                        Uvs[entity].Add(new float3(1, 0, currBlock+1));
-                        Uvs[entity].Add(new float3(1, 1, currBlock+1));
-                        Uvs[entity].Add(new float3(0, 1, currBlock+1));
+                        Uvs[entity].Add(new float3(1, 0, currBlock + 1));
+                        Uvs[entity].Add(new float3(1, 1, currBlock + 1));
+                        Uvs[entity].Add(new float3(0, 1, currBlock + 1));
                         Uvs[entity].Add(new float3(0, 0, currBlock + 1));
                     }
                     else

@@ -12,10 +12,9 @@ using UnityEngine;
 /// 
 public class MeshSystem : ComponentSystem
 {
-    //rendermesh
-    private readonly List<Vector3> verticesList = new List<Vector3>();
-    private readonly List<Vector3> normalsList = new List<Vector3>();
-    private readonly List<Vector3> uvsList = new List<Vector3>();
+    //private readonly List<Vector3> verticesList = new List<Vector3>();
+    //private readonly List<Vector3> normalsList = new List<Vector3>();
+    //private readonly List<Vector3> uvsList = new List<Vector3>();
     private readonly List<int> trianglesList = new List<int>();
 
     //pure data
@@ -168,19 +167,28 @@ public class MeshSystem : ComponentSystem
         //this.trianglesList[e].AddRange<int>(triangles);
 
         //mesh
-        verticesList.AddRange<Vector3>(vertices);
-        uvsList.AddRange<Vector3>(uvs);
-        normalsList.AddRange<Vector3>(normals);
-        trianglesList.AddRange<int>(triangles);
+        //verticesList.AddRange<Vector3>(vertices);
+        //uvsList.AddRange<Vector3>(uvs);
+        //normalsList.AddRange<Vector3>(normals);
+        //trianglesList.AddRange<ushort>(triangles);
 
-        meshes[e].SetVertices(verticesList);
-        meshes[e].SetUVs(0,uvsList);
-        meshes[e].SetNormals(normalsList);
-        meshes[e].SetTriangles(trianglesList,0);
+        //meshes[e].SetVertexBufferParams(vertices.Length, new UnityEngine.Rendering.VertexAttributeDescriptor
+        //{
+        //    attribute = UnityEngine.Rendering.VertexAttribute.Position,
+        //    dimension = 
+        //})
 
-        verticesList.Clear();
-        normalsList.Clear();
-        uvsList.Clear();
+
+        
+        meshes[e].SetVertices(vertices.ToNativeArray(Allocator.Temp));
+        meshes[e].SetUVs(0,uvs.ToNativeArray(Allocator.Temp));
+        meshes[e].SetNormals(normals.ToNativeArray(Allocator.Temp));
+        meshes[e].SetIndexBufferParams(triangles.Length, UnityEngine.Rendering.IndexFormat.UInt16);
+        meshes[e].SetIndices<int>(triangles.ToNativeArray(Allocator.Temp),MeshTopology.Triangles,0);
+
+        //verticesList.Clear();
+        //normalsList.Clear();
+        //uvsList.Clear();
         trianglesList.Clear();
     }
 }

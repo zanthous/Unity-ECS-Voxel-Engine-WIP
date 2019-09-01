@@ -16,7 +16,7 @@ public struct ShouldDraw : IComponentData
     public bool Value;
 }
 
-[InternalBufferCapacity(16*16*16)]
+[InternalBufferCapacity(16 * 16 * 16)]
 public struct BlockIDBuffer : IBufferElementData
 {
     // These implicit conversions are optional, but can help reduce typing.
@@ -35,6 +35,18 @@ public struct Vertex : IBufferElementData
     public float3 Value;
 }
 
+//This will be revisited whenever unity gets their shit together
+//and I can use 10/10/10/2 formats
+[InternalBufferCapacity(0)]
+public unsafe struct VertexAttribute : IBufferElementData
+{
+    //public static implicit operator float3(VertexAttribute e) { return e.Value; }
+    //public static implicit operator VertexAttribute(float3 e) { return new VertexAttribute { Value = e }; }
+    public ushort Uv;   
+    public int Normal;
+    public half4 Vertex;
+}
+
 [InternalBufferCapacity(0)]
 public struct Uv : IBufferElementData
 {
@@ -50,6 +62,8 @@ public struct Normal : IBufferElementData
     public static implicit operator Normal(float3 e) { return new Normal { Value = e }; }
     public float3 Value;
 }
+
+
 [InternalBufferCapacity(0)]
 public struct Triangle : IBufferElementData
 {
