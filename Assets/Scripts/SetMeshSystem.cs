@@ -123,7 +123,6 @@ public class MeshSystem : ComponentSystem
     }
 
     //https://forum.unity.com/threads/create-render-mesh-using-job-system.720302/
-    //TODO update to 2019.3
     private void SetMesh(
         Entity e,
         DynamicBuffer<Vector3> vertices,
@@ -177,8 +176,6 @@ public class MeshSystem : ComponentSystem
         //    attribute = UnityEngine.Rendering.VertexAttribute.Position,
         //    dimension = 
         //})
-
-
         
         meshes[e].SetVertices(vertices.ToNativeArray(Allocator.Temp));
         meshes[e].SetUVs(0,uvs.ToNativeArray(Allocator.Temp));

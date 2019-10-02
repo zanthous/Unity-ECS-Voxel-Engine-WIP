@@ -6,8 +6,7 @@ using UnityEngine;
 
 public unsafe struct MortonUtility
 {
-    //TODO get these burst compiled by either writing them into jobs or 
-    //compiling function pointers which i am not sure how works
+    //TODO use burst compiler somehow
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static uint m3d_e_sLUT16(ushort x, ushort y, ushort z)
     {

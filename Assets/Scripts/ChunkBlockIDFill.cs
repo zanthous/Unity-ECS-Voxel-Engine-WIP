@@ -22,28 +22,6 @@ public class ChunkBlockIDFill : JobComponentSystem
 
     Player playerRef;
 
-    //I don't know what thing to use here so I took a random one
-    //What I should use may be written here somewhere:
-    //https://docs.unity3d.com/Packages/com.unity.entities@0.0/api/Unity.Entities.EntityCommandBufferSystem.html
-
-    //Component system update ordering is now hierarchical. A forthcoming document will cover this feature in detail. Key changes:
-    //Added ComponentSystemGroup class, representing a group of systems (and system groups) to update in a fixed order.
-    //The following ComponentSystemGroups are added to the Unity player loop by default:
-    //InitializationSystemGroup (in the Initialization phase)
-    //SimulationSystemGroup (in the FixedUpdate phase)
-    //PresentationSystemGroup (in the Update phase)
-    //..etc taken from:
-    //https://github.com/Unity-Technologies/EntityComponentSystemSamples/blob/master/ReleaseNotes.md#changes-6
-    //From my best guess from the text above this would be what I use
-    //DelayedChunkTaggingBufferSystem system;
-    //Using this had no apparent effect so I will return to the other version I had
-    //DelayedChunkTaggingBufferSystem system;
-    //Actually trying one more time while adding a updateingroup tag to this system
-    //No noticeable effect
-    //Temporarily just returning from the execute function if accidentally called into again
-    //Definitely need to fix this later somehow
-
-
     DelayedChunkTaggingBufferSystem system;
 
     private NativeArray<byte> perm;
@@ -91,26 +69,12 @@ public class ChunkBlockIDFill : JobComponentSystem
 
     protected override JobHandle OnUpdate(JobHandle inputDeps)
     {
-        //TODO
         var players = playerQuery.ToComponentDataArray<Player>(Allocator.TempJob);
         playerRef = players[0];
         float3 playerPosition = playerRef.position;
         int renderDistance = playerRef.renderDistance;
         players.Dispose();
-
-        //var player = get
-        //var pos = GetComponentDataFromEntity<Player>();
-
-        //if(playerRef.Length>1)
-        //{
-        //    Debug.Log("More than 1 player found! - ChunkIterationTest.cs");
-        //}
-        //else if(playerRef.Length == 0)
-        //{
-        //    Debug.Log("No player found! - ChunkIterationTest.cs");
-        //}
-
-        //AddJobHandleForProducer
+        
         var job = new InitializeChunkBufferJob
         {
             blocks = GetBufferFromEntity<BlockIDBuffer>(false),
@@ -128,8 +92,6 @@ public class ChunkBlockIDFill : JobComponentSystem
             RenderDistance = renderDistance,
             ChunkEntities = Main.chunkEntities.AsParallelWriter()
         };
-        //Apparently you should basically never use complete, and just pass the previous job
-        //handle in as a dependency of the current job I believe
 
         var h1 = job2.Schedule<PositionChunksJob>(positionQuery, inputDeps);
 
@@ -165,34 +127,33 @@ public class ChunkBlockIDFill : JobComponentSystem
         public void Execute(Entity entity, int index, [ReadOnly] ref Translation translation, [ReadOnly] ref Chunk chunk, [ReadOnly] ref Ungenerated ungenerated)
         {
             ushort x, y, z;
-            int height;
             const ushort transparent = 1 << 15;
-            //First init
-            //if(blocks[entity].Length == 0)
-            //{
-            //    for(ushort i = 0; i < 16 * 16 * 16; i++)
-            //    {
-            //        //x = i & 15;
-            //        //y = i >> 8;
-            //        //z = (i >> 4) & 15;
-            //        MortonUtility.m3d_d_sLUT16(i, &x, &y, &z);
-            //        //1/128 = 0.0078125‬f
-            //        height = (32 + (int) (noise((translation.Value.x + x) * 0.0078125f, (translation.Value.z + z) * 0.0078125f) * 16.0f));
-            //        blocks[entity].Add(((chunk.pos.y * 16 + y) < height ? (ushort) 0 : (ushort) (transparent + 1)));
-            //    }
-            //    CommandBuffer.RemoveComponent<Ungenerated>(index, entity);
-            //}
 
             blocks[entity].Clear();
 
+
+            NativeArray<int> heights = new NativeArray<int>(16 * 16, Allocator.Temp, NativeArrayOptions.UninitializedMemory);
+            for(ushort i = 0; i < 16 * 16; i++)
+            {
+                //x = (ushort)(i % 16);
+                //z = (ushort) (i / 16);
+                heights[i] = 40 + (int) (noise((translation.Value.x + (ushort) (i % 16)) * 0.0078125f,
+                    (translation.Value.z + (ushort) (i / 16)) * 0.0078125f)
+                    * 24.0f);
+            }
+
+            int height;
             for(ushort i = 0; i < 16 * 16 * 16; i++)
             {
                 //x = i & 15;
                 //y = i >> 8;
                 //z = (i >> 4) & 15;
                 MortonUtility.m3d_d_sLUT16(i, &x, &y, &z);
-                height = (40 + (int) (noise((translation.Value.x + x) * 0.0078125f, (translation.Value.z + z) * 0.0078125f) * 24.0f));
-                if(translation.Value.y + y < height)
+                //height = 40 + (int) (noise((translation.Value.x + x) * 0.0078125f,
+                //    (translation.Value.z + z) * 0.0078125f)
+                //    * 24.0f);
+                //heights[z*16+x]
+                if(translation.Value.y + y < heights[z * 16 + x])
                 {
                     if(translation.Value.y + y < 32)
                     {

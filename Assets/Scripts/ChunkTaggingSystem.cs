@@ -106,8 +106,7 @@ public class ChunkTaggingSystem : JobComponentSystem
         {
             var translations = chunk.GetNativeArray(Translation);
             var entities = chunk.GetNativeArray(entityType);
-
-            //Debug.Log(r1 + " " + r2);
+            
             int3 chunkOffset = new int3(0, 0, 0);
 
             if(Mathf.Abs(PlayerPos.x - translations[0].Value.x) > RenderDistance * 16)

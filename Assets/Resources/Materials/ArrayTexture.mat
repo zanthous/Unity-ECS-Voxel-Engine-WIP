@@ -8,7 +8,8 @@ Material:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_Name: ArrayTexture
-  m_Shader: {fileID: 4800000, guid: e122fa4f1681eea46969c532736b4c82, type: 3}
+  m_Shader: {fileID: -6465566751694194690, guid: 535e277a8b27c424fa631e2419e77405,
+    type: 3}
   m_ShaderKeywords: 
   m_LightmapFlags: 4
   m_EnableInstancingVariants: 1
@@ -19,6 +20,10 @@ Material:
   m_SavedProperties:
     serializedVersion: 3
     m_TexEnvs:
+    - Texture2DArray_69B3380D:
+        m_Texture: {fileID: 0}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
     - _BaseMap:
         m_Texture: {fileID: 2800000, guid: 25a23c3c83fe11145b8304853fb731f5, type: 3}
         m_Scale: {x: 1, y: 1}
@@ -68,7 +73,7 @@ Material:
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     - _Textures:
-        m_Texture: {fileID: 18700000, guid: f2cbbc0bc489df8469a60a67f7d3b5da, type: 2}
+        m_Texture: {fileID: 0}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     m_Floats:

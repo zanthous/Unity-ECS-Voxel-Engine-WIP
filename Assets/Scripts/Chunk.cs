@@ -35,7 +35,7 @@ public struct Vertex : IBufferElementData
     public float3 Value;
 }
 
-//This will be revisited whenever unity gets their shit together
+//This will be revisited whenever unity update their mesh api
 //and I can use 10/10/10/2 formats
 [InternalBufferCapacity(0)]
 public unsafe struct VertexAttribute : IBufferElementData

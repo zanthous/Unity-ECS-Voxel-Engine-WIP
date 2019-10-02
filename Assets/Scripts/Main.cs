@@ -12,25 +12,20 @@ using UnityEngine;
 public class Main : MonoBehaviour
 {
     //https://forum.unity.com/threads/best-practices-for-big-data-sets-arrays-on-entities.523642/
-    //very important thread
-
-    //notes from voxel example
-    //uses a hash to give an id to every voxel (xxhash)
-
     //https://forum.unity.com/threads/lists-of-things-collections-arrays-groups.524532/
-    //another thread
-
-    //kept reading looked at sharedcomponentdata which seems bad, and fixed array which was replaced with
-    //dynamic buffer which I will look at now-
 
     static private bool initDone = false;
+
+    private readonly int ChunkCount = (Settings.RenderDistance * 2) * (Settings.RenderDistance * 2) * (Settings.WorldHeight / Settings.ChunkSize);
 
     private ChunkBlockIDFill chunkDataGenerationSystem;
     private ChunkMeshGenerationSystem chunkMeshBufferFillSystem;
     private MeshSystem meshSetSystem;
-    private readonly HashSet<Entity> entitySet = new HashSet<Entity>();
+    private NativeArray<Entity> entitySet;
     private Material material;
     private Plane[] frustumPlanes = new Plane[6];
+
+    private DrawMeshSystem drawMeshSystemRef;
 
     [SerializeField] private Texture2D[] textures;
 
@@ -57,6 +52,12 @@ public class Main : MonoBehaviour
         chunkEntities =
         new NativeHashMap<int3, Entity>(Settings.RenderDistance * Settings.RenderDistance * (Settings.WorldHeight / Settings.ChunkSize) * 4 * 100,
             Allocator.Persistent);
+
+        entitySet =
+        new NativeArray<Entity>(
+            (Settings.RenderDistance * 2) * (Settings.RenderDistance * 2) * (Settings.WorldHeight / Settings.ChunkSize),
+            Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
+
 
         em = World.Active.EntityManager;
 
@@ -106,21 +107,21 @@ public class Main : MonoBehaviour
 
             //em.SetComponentData<Scale>(temp, new Scale { Value = 1 });
             //em.AddComponentObject(temp, MeshFilter is uncreatable?);
-            entitySet.Add(temp);
+            entitySet[i] = temp;
 
         }
         //World.Active.GetOrCreateSystem<DrawMeshSystem>();
         World.Active.CreateSystem<DrawMeshSystem>();
         World.Active.GetExistingSystem<DrawMeshSystem>().Enabled = true;
-        //Debug.Log(World.Active.GetExistingSystem<DrawMeshSystem>());
-        //chunkDataGenerationSystem = World.Active.GetOrCreateSystem<ChunkBlockIDFill>();
-        //chunkMeshBufferFillSystem = World.Active.GetOrCreateSystem<ChunkMeshGenerationSystem>();
-        //meshSetSystem = World.Active.GetOrCreateSystem<MeshSystem>();
+
+        World.Active.GetExistingSystem<SimulationSystemGroup>().AddSystemToUpdateList(World.Active.GetExistingSystem<DrawMeshSystem>());
+        World.Active.GetExistingSystem<SimulationSystemGroup>().SortSystemUpdateList();
+
         initDone = true;
         //World.Active.DestroySystem();
         World.Active.GetExistingSystem<PresentationSystemGroup>().Enabled = false;
 
-        //Morton curve code port testing
+        //Morton curve code testing
         //unsafe
         //{
         //    ushort i, j, k = 0;
@@ -141,18 +142,23 @@ public class Main : MonoBehaviour
 
 
         //Create texture2darray
-        //Texture2DArray t = new Texture2DArray(32, 32, textures.Length, 
-        //    UnityEngine.Experimental.Rendering.DefaultFormat.LDR, UnityEngine.Experimental.Rendering.TextureCreationFlags.None);
-        //for(int i = 0; i < textures.Length; i++)
-        //{
-        //    t.SetPixels(textures[i].GetPixels(),i);
-        //}
+        Texture2DArray t = new Texture2DArray(32, 32, textures.Length,TextureFormat.RGBA32,false);
+        t.filterMode = FilterMode.Point;
+        Debug.Log(t.graphicsFormat);
+        for(int i = 0; i < textures.Length; i++)
+        {
+            t.SetPixels(textures[i].GetPixels(), i,0);
+        }
+        //var a = textures[3].GetPixels();
+        //Debug.Log(t.GetPixels(3)[0]);
 
-        //t.Apply();
-        
-        //AssetDatabase.CreateAsset(t, "Assets/Sprites/TerrainAtlas.asset");
+        t.Apply();
+
+        Debug.Log("Created texture2darray at Assets/Sprites/TerrainAtlas.asset");
+        AssetDatabase.CreateAsset(t, "Assets/Sprites/TerrainAtlas.asset");
 
         material = Resources.Load<Material>("Materials/ArrayTexture");
+        material.SetTexture(0, t);
         //material.SetTexture("_Textures", t);
     }
 
@@ -163,8 +169,8 @@ public class Main : MonoBehaviour
 
     private void Update()
     {
-        World.Active.GetExistingSystem<DrawMeshSystem>().Update();
-        
+        //drawMeshSystemRef.
+
 
         //frustumPlanes = GeometryUtility.CalculateFrustumPlanes(camera);
         //int3 chunkPos;
@@ -183,13 +189,43 @@ public class Main : MonoBehaviour
     {
         World.Active.GetExistingSystem<DrawMeshSystem>().CompleteJob();
         int3 chunkPos;
-        foreach(Entity e in entitySet)
+
+        Entity e;
+        //todo optimize
+        //the non-graphics drawmesh parts are slow but not sure where exactly yet
+        for(int i = 0; i < entitySet.Length; i++)
         {
+            e = entitySet[i];
             if(em.HasComponent<ShouldDraw>(e) && em.GetComponentData<ShouldDraw>(e).Value == true && em.HasComponent<ChunkUpToDate>(e))
-            { 
+            {
                 chunkPos = em.GetComponentData<Chunk>(e).pos;
-                Graphics.DrawMesh(MeshSystem.meshes[e], new Vector3(chunkPos.x*16, chunkPos.y * 16, chunkPos.z * 16), Quaternion.identity, material, 0);
+                if(MeshSystem.meshes[e].vertexCount > 0)
+                {
+                    Graphics.DrawMesh(MeshSystem.meshes[e], new Vector3(chunkPos.x * 16, chunkPos.y * 16, chunkPos.z * 16), Quaternion.identity, material, 0);
+                }
             }
         }
+        //measure performance
+        //for(int i = 0; i < entitySet.Length; i++)
+        //{
+        //    e = entitySet[i];
+        //    if(em.HasComponent<ShouldDraw>(e) && em.GetComponentData<ShouldDraw>(e).Value == true && em.HasComponent<ChunkUpToDate>(e))
+        //    {
+        //    }
+        //}
+        //for(int i = 0; i < entitySet.Length; i++)
+        //{
+        //    e = entitySet[i];
+        //    chunkPos = em.GetComponentData<Chunk>(e).pos;
+        //    if(MeshSystem.meshes[e].vertexCount > 0)
+        //    {
+
+        //    }
+        //}
+        //todo clean chunkentities
+        //if(chunkEntities.Length > ChunkCount*10)
+        //{
+        //    
+        //}
     }
 }
